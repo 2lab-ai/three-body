@@ -150,7 +150,7 @@
 <div id="hud-right">
   <div id="fps-display">60 fps</div>
   <div id="integrator-display">Velocity Verlet</div>
-  <div id="substep-display">4 substeps</div>
+  <div id="substep-display"></div>
 </div>
 
 <div id="spawn-hint">
@@ -193,12 +193,102 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 // ========================
 const G = 600
 const BASE_DT = 0.002
-const BASE_SUBSTEPS = 4
-const TRAIL_LENGTH = 800
 const SOFTENING = 3.0
 const MAX_BODIES = 3
 const COLLISION_RADIUS = 5
 const BOUNCE_DAMPING = 0.7
+
+// ========================
+// ADAPTIVE QUALITY SYSTEM
+// ========================
+const quality = {
+  level: 'high',       // high / medium / low
+  trailLength: 800,
+  substeps: 4,
+  trailUpdateInterval: 2,  // update trail every N frames
+  bloomEnabled: true,
+  bloomStrength: 0.6,
+  pixelRatio: Math.min(window.devicePixelRatio, 2),
+  antialias: true,
+  // FPS tracking for auto-adjustment
+  fpsHistory: [],
+  lastAdjust: 0,
+  adjustCooldown: 3000,  // ms between adjustments
+}
+
+function adjustQuality(currentFps) {
+  const now = performance.now()
+  if (now - quality.lastAdjust < quality.adjustCooldown) return
+
+  quality.fpsHistory.push(currentFps)
+  if (quality.fpsHistory.length > 6) quality.fpsHistory.shift()
+  if (quality.fpsHistory.length < 4) return  // need enough samples
+
+  const avgFps = quality.fpsHistory.reduce((a,b) => a+b, 0) / quality.fpsHistory.length
+
+  if (avgFps < 25 && quality.level !== 'low') {
+    // DROP to LOW
+    quality.level = 'low'
+    quality.trailLength = 200
+    quality.substeps = 2
+    quality.trailUpdateInterval = 4
+    quality.bloomEnabled = false
+    bloomPass.strength = 0
+    renderer.setPixelRatio(1)
+    // Trim existing trails
+    for (const b of bodies) {
+      while (b.trailPositions.length > quality.trailLength) {
+        b.trailPositions.shift()
+        b.trailSpeeds.shift()
+      }
+    }
+    quality.lastAdjust = now
+    quality.fpsHistory = []
+  } else if (avgFps < 40 && quality.level === 'high') {
+    // DROP to MEDIUM
+    quality.level = 'medium'
+    quality.trailLength = 400
+    quality.substeps = 3
+    quality.trailUpdateInterval = 3
+    quality.bloomStrength = 0.3
+    bloomPass.strength = 0.3
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+    for (const b of bodies) {
+      while (b.trailPositions.length > quality.trailLength) {
+        b.trailPositions.shift()
+        b.trailSpeeds.shift()
+      }
+    }
+    quality.lastAdjust = now
+    quality.fpsHistory = []
+  } else if (avgFps > 55 && quality.level === 'low') {
+    // RECOVER to MEDIUM
+    quality.level = 'medium'
+    quality.trailLength = 400
+    quality.substeps = 3
+    quality.trailUpdateInterval = 3
+    quality.bloomEnabled = true
+    quality.bloomStrength = 0.3
+    bloomPass.strength = 0.3
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+    quality.lastAdjust = now
+    quality.fpsHistory = []
+  } else if (avgFps > 55 && quality.level === 'medium') {
+    // RECOVER to HIGH
+    quality.level = 'high'
+    quality.trailLength = 800
+    quality.substeps = 4
+    quality.trailUpdateInterval = 2
+    quality.bloomEnabled = true
+    quality.bloomStrength = 0.6
+    bloomPass.strength = 0.6
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    quality.lastAdjust = now
+    quality.fpsHistory = []
+  }
+}
+
+const TRAIL_LENGTH = quality.trailLength  // initial value for Body constructor
 
 // ========================
 // PLANET CONFIGS
@@ -218,9 +308,22 @@ scene.fog = new THREE.FogExp2(0x000005, 0.002)
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 3000)
 camera.position.set(0, 50, 90)
 
-const renderer = new THREE.WebGLRenderer({ antialias: true })
+// Detect low-end device early
+const isLowEnd = window.devicePixelRatio <= 1 || navigator.hardwareConcurrency <= 4
+  || /Android|iPhone/i.test(navigator.userAgent)
+
+if (isLowEnd) {
+  quality.level = 'medium'
+  quality.trailLength = 400
+  quality.substeps = 3
+  quality.trailUpdateInterval = 3
+  quality.bloomStrength = 0.3
+  quality.pixelRatio = 1
+}
+
+const renderer = new THREE.WebGLRenderer({ antialias: !isLowEnd })
 renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+renderer.setPixelRatio(quality.pixelRatio)
 renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.toneMappingExposure = 1.3
 document.body.appendChild(renderer.domElement)
@@ -237,9 +340,9 @@ const composer = new EffectComposer(renderer)
 composer.addPass(new RenderPass(scene, camera))
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.6,   // strength
-  0.4,   // radius
-  0.85   // threshold
+  quality.bloomStrength,
+  0.4,
+  0.85
 )
 composer.addPass(bloomPass)
 
@@ -419,7 +522,8 @@ class Body {
     this.trailPositions.push(this.pos.clone())
     this.trailSpeeds.push(speed)
 
-    if (this.trailPositions.length > this.trailMaxLen) {
+    const maxLen = quality.trailLength
+    while (this.trailPositions.length > maxLen) {
       this.trailPositions.shift()
       this.trailSpeeds.shift()
     }
@@ -855,11 +959,11 @@ function animate() {
   requestAnimationFrame(animate)
 
   if (!paused && bodies.length >= 2) {
-    const substeps = BASE_SUBSTEPS
+    const substeps = quality.substeps
     const dt = BASE_DT * timeScale
     for (let s = 0; s < substeps; s++) step(dt)
 
-    if (frameCount % 2 === 0) {
+    if (frameCount % quality.trailUpdateInterval === 0) {
       for (const b of bodies) b.updateTrail()
     }
   }
@@ -885,7 +989,10 @@ function animate() {
     fps = Math.round(frameCount / ((now - lastFpsTime) / 1000))
     frameCount = 0
     lastFpsTime = now
-    fpsEl.textContent = `${fps} fps`
+    fpsEl.textContent = `${fps} fps [${quality.level}]`
+    document.getElementById('substep-display').textContent =
+      `${quality.substeps} sub · trail ${quality.trailLength}`
+    adjustQuality(fps)
   }
 
   timeEl.textContent = `t = ${simTime.toFixed(2)}`
