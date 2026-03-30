@@ -23,16 +23,6 @@
   }
   canvas { display: block; }
 
-  #ui {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    pointer-events: none;
-    z-index: 10;
-  }
-
   #hud-top {
     position: fixed;
     top: 16px;
@@ -41,6 +31,7 @@
     opacity: 0.5;
     z-index: 20;
     line-height: 1.7;
+    pointer-events: none;
   }
   #hud-top .title {
     font-size: 16px;
@@ -59,6 +50,7 @@
     z-index: 20;
     text-align: right;
     line-height: 1.6;
+    pointer-events: none;
   }
 
   #info {
@@ -66,7 +58,7 @@
     bottom: 16px;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 12px;
+    font-size: 11px;
     color: rgba(255,255,255,0.3);
     z-index: 20;
     text-align: center;
@@ -78,26 +70,24 @@
 
   #planet-indicators {
     position: fixed;
-    bottom: 60px;
+    bottom: 56px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
     gap: 16px;
     z-index: 20;
+    pointer-events: none;
   }
   .planet-dot {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    border: 2px solid rgba(255,255,255,0.2);
+    border: 2px solid rgba(255,255,255,0.15);
     transition: all 0.3s;
   }
   .planet-dot.active {
     border-color: transparent;
-    box-shadow: 0 0 8px 2px currentColor;
-  }
-  .planet-dot.empty {
-    opacity: 0.3;
+    box-shadow: 0 0 10px 2px currentColor;
   }
 
   #spawn-hint {
@@ -106,66 +96,79 @@
     left: 50%;
     transform: translate(-50%, -50%);
     font-size: 18px;
-    color: rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.12);
     z-index: 20;
-    transition: opacity 0.5s;
+    transition: opacity 0.8s;
     text-align: center;
     line-height: 1.8;
+    pointer-events: none;
   }
 
   .energy-bar {
     position: fixed;
-    bottom: 90px;
+    bottom: 80px;
     left: 50%;
     transform: translateX(-50%);
-    width: 200px;
-    height: 3px;
-    background: rgba(255,255,255,0.05);
+    width: 160px;
+    height: 2px;
+    background: rgba(255,255,255,0.04);
     border-radius: 2px;
     z-index: 20;
     overflow: hidden;
+    pointer-events: none;
   }
   .energy-bar-fill {
     height: 100%;
     background: linear-gradient(90deg, #4488ff, #ff4444);
     width: 50%;
     transition: width 0.3s;
-    border-radius: 2px;
+  }
+
+  #time-control {
+    position: fixed;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    opacity: 0.3;
+    z-index: 20;
+    pointer-events: none;
+    transition: opacity 0.3s;
   }
 </style>
 </head>
 <body>
 
-<div id="ui">
-  <div id="hud-top">
-    <div class="title">THREE-BODY PROBLEM</div>
-    <div id="status">bodies: 0/3</div>
-    <div id="time-display">t = 0.00</div>
-    <div id="energy-display">E = 0</div>
-  </div>
-
-  <div id="hud-right">
-    <div id="fps-display">60 fps</div>
-    <div id="integrator-display">Verlet</div>
-    <div id="dt-display">dt = 0.002</div>
-  </div>
-
-  <div id="spawn-hint">
-    click to spawn a planet<br>
-    <span style="font-size:12px;opacity:0.6">up to 3 bodies</span>
-  </div>
-
-  <div id="planet-indicators">
-    <div class="planet-dot empty" id="dot0"></div>
-    <div class="planet-dot empty" id="dot1"></div>
-    <div class="planet-dot empty" id="dot2"></div>
-  </div>
-
-  <div class="energy-bar"><div class="energy-bar-fill" id="energy-fill"></div></div>
+<div id="hud-top">
+  <div class="title">THREE-BODY PROBLEM</div>
+  <div id="status">bodies: 0/3</div>
+  <div id="time-display">t = 0.00</div>
+  <div id="energy-display">E = 0</div>
+  <div id="speed-display" style="color:#666">1.0x</div>
 </div>
 
+<div id="hud-right">
+  <div id="fps-display">60 fps</div>
+  <div id="integrator-display">Velocity Verlet</div>
+  <div id="substep-display">4 substeps</div>
+</div>
+
+<div id="spawn-hint">
+  click to spawn a planet<br>
+  <span style="font-size:12px;opacity:0.5">up to 3 bodies</span>
+</div>
+
+<div id="planet-indicators">
+  <div class="planet-dot" id="dot0"></div>
+  <div class="planet-dot" id="dot1"></div>
+  <div class="planet-dot" id="dot2"></div>
+</div>
+
+<div class="energy-bar"><div class="energy-bar-fill" id="energy-fill"></div></div>
+<div id="time-control"></div>
+
 <div id="info">
-  drag to orbit · scroll to zoom · click to spawn · R to reset · T for trails · P to pause<br>
+  drag=orbit · scroll=zoom · click=spawn · R=reset · T=trails · P=pause · ←→=speed<br>
   <a href="https://github.com/2lab-ai/three-body" target="_blank">source</a>
 </div>
 
@@ -183,107 +186,138 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 
 // ========================
-// SIMULATION CONSTANTS
+// CONSTANTS
 // ========================
-const G = 800            // gravitational constant
-const DT = 0.002         // time step
-const SUBSTEPS = 4       // physics substeps per frame
-const TRAIL_LENGTH = 600 // trail history length
-const SOFTENING = 2.0    // prevent singularities
+const G = 600
+const BASE_DT = 0.002
+const BASE_SUBSTEPS = 4
+const TRAIL_LENGTH = 800
+const SOFTENING = 3.0
 const MAX_BODIES = 3
+const COLLISION_RADIUS = 5
+const BOUNCE_DAMPING = 0.7
 
 // ========================
 // PLANET CONFIGS
 // ========================
 const PLANET_CONFIGS = [
-  { color: 0x4488ff, emissive: 0x2244aa, mass: 100, radius: 2.5, name: 'Alpha' },
-  { color: 0xff6644, emissive: 0xaa3322, mass: 100, radius: 2.5, name: 'Beta' },
-  { color: 0x44ff88, emissive: 0x22aa44, mass: 100, radius: 2.5, name: 'Gamma' },
+  { color: 0x4488ff, emissive: 0x1133aa, mass: 120, radius: 2.8, name: 'Alpha' },
+  { color: 0xff6644, emissive: 0xaa2211, mass: 100, radius: 2.4, name: 'Beta' },
+  { color: 0x44ff88, emissive: 0x11aa33, mass: 80,  radius: 2.0, name: 'Gamma' },
 ]
 
 // ========================
 // THREE.JS SETUP
 // ========================
 const scene = new THREE.Scene()
-scene.fog = new THREE.FogExp2(0x000000, 0.003)
+scene.fog = new THREE.FogExp2(0x000005, 0.002)
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000)
-camera.position.set(0, 40, 80)
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 3000)
+camera.position.set(0, 50, 90)
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 renderer.toneMapping = THREE.ACESFilmicToneMapping
-renderer.toneMappingExposure = 1.2
+renderer.toneMappingExposure = 1.3
 document.body.appendChild(renderer.domElement)
 
-// Controls
 const controls = new OrbitControls(camera, renderer.domElement)
 controls.enableDamping = true
-controls.dampingFactor = 0.05
+controls.dampingFactor = 0.06
 controls.minDistance = 15
-controls.maxDistance = 500
-controls.autoRotate = false
-controls.autoRotateSpeed = 0.3
+controls.maxDistance = 400
+controls.autoRotateSpeed = 0.4
 
 // ========================
 // LIGHTING
 // ========================
-const ambient = new THREE.AmbientLight(0x222233, 0.5)
-scene.add(ambient)
-
-const pointLight = new THREE.PointLight(0xffffff, 1.5, 300)
-pointLight.position.set(0, 30, 0)
-scene.add(pointLight)
+scene.add(new THREE.AmbientLight(0x181830, 0.6))
+const sunLight = new THREE.DirectionalLight(0xffeedd, 0.4)
+sunLight.position.set(50, 80, 30)
+scene.add(sunLight)
 
 // ========================
 // STARFIELD
 // ========================
-function createStarfield() {
+{
   const geo = new THREE.BufferGeometry()
-  const count = 3000
-  const positions = new Float32Array(count * 3)
-  const colors = new Float32Array(count * 3)
-  const sizes = new Float32Array(count)
-
-  for (let i = 0; i < count; i++) {
-    const r = 300 + Math.random() * 700
-    const theta = Math.random() * Math.PI * 2
-    const phi = Math.acos(2 * Math.random() - 1)
-    positions[i*3] = r * Math.sin(phi) * Math.cos(theta)
-    positions[i*3+1] = r * Math.sin(phi) * Math.sin(theta)
-    positions[i*3+2] = r * Math.cos(phi)
-
-    const c = new THREE.Color()
-    c.setHSL(0.55 + Math.random() * 0.15, 0.3, 0.6 + Math.random() * 0.4)
-    colors[i*3] = c.r
-    colors[i*3+1] = c.g
-    colors[i*3+2] = c.b
-
-    sizes[i] = 0.5 + Math.random() * 2
+  const N = 4000
+  const pos = new Float32Array(N * 3)
+  const col = new Float32Array(N * 3)
+  for (let i = 0; i < N; i++) {
+    const r = 400 + Math.random() * 800
+    const th = Math.random() * Math.PI * 2
+    const ph = Math.acos(2 * Math.random() - 1)
+    pos[i*3]   = r * Math.sin(ph) * Math.cos(th)
+    pos[i*3+1] = r * Math.sin(ph) * Math.sin(th)
+    pos[i*3+2] = r * Math.cos(ph)
+    const c = new THREE.Color().setHSL(0.55 + Math.random() * 0.2, 0.2 + Math.random() * 0.3, 0.5 + Math.random() * 0.5)
+    col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b
   }
-
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-  geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1))
-
-  const mat = new THREE.PointsMaterial({
-    size: 1.5,
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.6,
-    sizeAttenuation: true,
-  })
-
-  return new THREE.Points(geo, mat)
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 1.2, vertexColors: true, transparent: true, opacity: 0.5, sizeAttenuation: true,
+  })))
 }
-scene.add(createStarfield())
 
-// Grid (subtle reference plane)
-const gridHelper = new THREE.GridHelper(200, 40, 0x111122, 0x0a0a15)
-gridHelper.material.transparent = true
-gridHelper.material.opacity = 0.3
-scene.add(gridHelper)
+// Reference grid
+{
+  const g = new THREE.GridHelper(200, 40, 0x0c0c1a, 0x080810)
+  g.material.transparent = true
+  g.material.opacity = 0.25
+  scene.add(g)
+}
+
+// ========================
+// GRAVITY LINES MATERIAL (dashed)
+// ========================
+const gravLineMat = new THREE.LineDashedMaterial({
+  color: 0xffffff,
+  transparent: true,
+  opacity: 0.08,
+  dashSize: 2,
+  gapSize: 2,
+  linewidth: 1,
+})
+
+// Gravity connection lines (will be created when bodies exist)
+let gravLines = []
+
+function rebuildGravLines() {
+  for (const l of gravLines) scene.remove(l)
+  gravLines = []
+
+  for (let i = 0; i < bodies.length; i++) {
+    for (let j = i + 1; j < bodies.length; j++) {
+      const geo = new THREE.BufferGeometry()
+      const pos = new Float32Array(6) // 2 points
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      const mat = gravLineMat.clone()
+      const line = new THREE.Line(geo, mat)
+      line.computeLineDistances()
+      gravLines.push({ line, i, j, geo, mat, posArr: pos })
+      scene.add(line)
+    }
+  }
+}
+
+function updateGravLines() {
+  for (const gl of gravLines) {
+    const a = bodies[gl.i]
+    const b = bodies[gl.j]
+    if (!a || !b) continue
+    gl.posArr[0] = a.pos.x; gl.posArr[1] = a.pos.y; gl.posArr[2] = a.pos.z
+    gl.posArr[3] = b.pos.x; gl.posArr[4] = b.pos.y; gl.posArr[5] = b.pos.z
+    gl.geo.attributes.position.needsUpdate = true
+    gl.line.computeLineDistances()
+
+    // Opacity based on distance
+    const dist = a.pos.distanceTo(b.pos)
+    gl.mat.opacity = Math.max(0.02, 0.12 - dist * 0.001)
+  }
+}
 
 // ========================
 // BODY CLASS
@@ -294,143 +328,187 @@ class Body {
     this.pos = position.clone()
     this.vel = velocity.clone()
     this.acc = new THREE.Vector3()
-    this.prevAcc = new THREE.Vector3()
     this.config = config
     this.trailPositions = []
+    this.alive = true
 
-    // Mesh
+    // Main sphere
     const geo = new THREE.SphereGeometry(config.radius, 32, 32)
     const mat = new THREE.MeshStandardMaterial({
       color: config.color,
       emissive: config.emissive,
-      emissiveIntensity: 0.8,
-      roughness: 0.3,
-      metalness: 0.7,
+      emissiveIntensity: 1.0,
+      roughness: 0.2,
+      metalness: 0.8,
     })
     this.mesh = new THREE.Mesh(geo, mat)
     this.mesh.position.copy(this.pos)
 
-    // Glow
-    const glowGeo = new THREE.SphereGeometry(config.radius * 1.8, 16, 16)
+    // Outer glow shell
+    const glowGeo = new THREE.SphereGeometry(config.radius * 2.2, 16, 16)
     const glowMat = new THREE.MeshBasicMaterial({
       color: config.color,
       transparent: true,
-      opacity: 0.12,
+      opacity: 0.08,
       side: THREE.BackSide,
     })
     this.glow = new THREE.Mesh(glowGeo, glowMat)
     this.mesh.add(this.glow)
 
-    // Point light on body
-    this.light = new THREE.PointLight(config.color, 0.6, 50)
+    // Inner light
+    this.light = new THREE.PointLight(config.color, 0.8, 60)
     this.mesh.add(this.light)
 
-    // Trail
-    const trailMat = new THREE.LineBasicMaterial({
-      color: config.color,
-      transparent: true,
-      opacity: 0.5,
-      linewidth: 1,
-    })
+    // Trail — use line with vertex colors for speed-based coloring
+    this.trailMaxLen = TRAIL_LENGTH
     const trailGeo = new THREE.BufferGeometry()
-    const trailArr = new Float32Array(TRAIL_LENGTH * 3)
-    trailGeo.setAttribute('position', new THREE.BufferAttribute(trailArr, 3))
+    const trailPos = new Float32Array(TRAIL_LENGTH * 3)
+    const trailCol = new Float32Array(TRAIL_LENGTH * 3)
+    trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3))
+    trailGeo.setAttribute('color', new THREE.BufferAttribute(trailCol, 3))
     trailGeo.setDrawRange(0, 0)
-    this.trail = new THREE.Line(trailGeo, trailMat)
-    this.trailArray = trailArr
 
-    // Velocity vector arrow
-    this.arrow = new THREE.ArrowHelper(
-      new THREE.Vector3(1,0,0), this.pos, 5, config.color, 1.5, 1
-    )
-    this.arrow.visible = false
+    const trailMat = new THREE.LineBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.6,
+    })
+    this.trail = new THREE.Line(trailGeo, trailMat)
+    this.trailPosArr = trailPos
+    this.trailColArr = trailCol
+
+    // Speed history for color mapping
+    this.trailSpeeds = []
 
     scene.add(this.mesh)
     scene.add(this.trail)
-    scene.add(this.arrow)
   }
 
   updateTrail() {
+    const speed = this.vel.length()
     this.trailPositions.push(this.pos.clone())
-    if (this.trailPositions.length > TRAIL_LENGTH) {
+    this.trailSpeeds.push(speed)
+
+    if (this.trailPositions.length > this.trailMaxLen) {
       this.trailPositions.shift()
+      this.trailSpeeds.shift()
     }
 
-    const arr = this.trailArray
     const len = this.trailPositions.length
+    const baseColor = new THREE.Color(this.config.color)
+    const hotColor = new THREE.Color(0xffffff)
+
+    // Find max speed for normalization
+    let maxSpd = 1
+    for (const s of this.trailSpeeds) if (s > maxSpd) maxSpd = s
+
     for (let i = 0; i < len; i++) {
-      arr[i*3] = this.trailPositions[i].x
-      arr[i*3+1] = this.trailPositions[i].y
-      arr[i*3+2] = this.trailPositions[i].z
+      this.trailPosArr[i*3]   = this.trailPositions[i].x
+      this.trailPosArr[i*3+1] = this.trailPositions[i].y
+      this.trailPosArr[i*3+2] = this.trailPositions[i].z
+
+      // Color: base color → white based on speed
+      const sNorm = this.trailSpeeds[i] / maxSpd
+      const fade = i / len // older = dimmer
+      const c = baseColor.clone().lerp(hotColor, sNorm * 0.6)
+      this.trailColArr[i*3]   = c.r * fade
+      this.trailColArr[i*3+1] = c.g * fade
+      this.trailColArr[i*3+2] = c.b * fade
     }
+
     this.trail.geometry.attributes.position.needsUpdate = true
+    this.trail.geometry.attributes.color.needsUpdate = true
     this.trail.geometry.setDrawRange(0, len)
   }
 
   updateMesh(time) {
     this.mesh.position.copy(this.pos)
 
-    // Pulsing glow
-    const pulse = 1 + Math.sin(time * 3 + this.config.color) * 0.1
+    // Pulse glow
+    const pulse = 1 + Math.sin(time * 2.5 + this.config.mass) * 0.12
     this.glow.scale.setScalar(pulse)
 
-    // Velocity arrow
-    if (showVelocity && this.vel.length() > 0.1) {
-      this.arrow.visible = true
-      this.arrow.position.copy(this.pos)
-      this.arrow.setDirection(this.vel.clone().normalize())
-      this.arrow.setLength(this.vel.length() * 0.5, 1.5, 1)
-    } else {
-      this.arrow.visible = false
-    }
+    // Light intensity varies with speed
+    const speed = this.vel.length()
+    this.light.intensity = 0.5 + Math.min(speed * 0.05, 1.5)
   }
 
   remove() {
     scene.remove(this.mesh)
     scene.remove(this.trail)
-    scene.remove(this.arrow)
+    this.alive = false
   }
 }
 
 // ========================
-// SIMULATION STATE
+// STATE
 // ========================
 let bodies = []
 let simTime = 0
 let paused = false
 let showTrails = true
-let showVelocity = false
+let timeScale = 1.0 // speed multiplier
 let fps = 60
 let frameCount = 0
 let lastFpsTime = performance.now()
+let initialEnergy = null
 
 // ========================
-// PHYSICS: Velocity Verlet
+// PHYSICS
 // ========================
 function computeAccelerations() {
-  for (const b of bodies) {
-    b.prevAcc.copy(b.acc)
-    b.acc.set(0, 0, 0)
-  }
+  for (const b of bodies) b.acc.set(0, 0, 0)
 
   for (let i = 0; i < bodies.length; i++) {
     for (let j = i + 1; j < bodies.length; j++) {
-      const a = bodies[i]
-      const b = bodies[j]
-
+      const a = bodies[i], b = bodies[j]
       const dx = b.pos.x - a.pos.x
       const dy = b.pos.y - a.pos.y
       const dz = b.pos.z - a.pos.z
       const distSq = dx*dx + dy*dy + dz*dz + SOFTENING * SOFTENING
       const dist = Math.sqrt(distSq)
-      const force = G / (distSq * dist) // F/m = G*M/r^2, combined direction
+      const F = G / (distSq * dist)
 
-      a.acc.x += force * b.mass * dx
-      a.acc.y += force * b.mass * dy
-      a.acc.z += force * b.mass * dz
-      b.acc.x -= force * a.mass * dx
-      b.acc.y -= force * a.mass * dy
-      b.acc.z -= force * a.mass * dz
+      a.acc.x += F * b.mass * dx
+      a.acc.y += F * b.mass * dy
+      a.acc.z += F * b.mass * dz
+      b.acc.x -= F * a.mass * dx
+      b.acc.y -= F * a.mass * dy
+      b.acc.z -= F * a.mass * dz
+    }
+  }
+}
+
+function handleCollisions() {
+  for (let i = 0; i < bodies.length; i++) {
+    for (let j = i + 1; j < bodies.length; j++) {
+      const a = bodies[i], b = bodies[j]
+      const dist = a.pos.distanceTo(b.pos)
+      const minDist = (a.config.radius + b.config.radius) * 1.2
+
+      if (dist < minDist && dist > 0.01) {
+        // Elastic collision (bounce)
+        const normal = b.pos.clone().sub(a.pos).normalize()
+
+        // Relative velocity along collision normal
+        const relVel = a.vel.clone().sub(b.vel)
+        const velAlongNormal = relVel.dot(normal)
+
+        // Only resolve if approaching
+        if (velAlongNormal > 0) {
+          const totalMass = a.mass + b.mass
+          const impulse = (2 * velAlongNormal) / totalMass
+
+          a.vel.addScaledVector(normal, -impulse * b.mass * BOUNCE_DAMPING)
+          b.vel.addScaledVector(normal, impulse * a.mass * BOUNCE_DAMPING)
+        }
+
+        // Separate overlapping bodies
+        const overlap = minDist - dist
+        const sep = normal.multiplyScalar(overlap * 0.6)
+        a.pos.sub(sep)
+        b.pos.add(sep)
+      }
     }
   }
 }
@@ -438,19 +516,16 @@ function computeAccelerations() {
 function step(dt) {
   if (bodies.length < 2) return
 
-  // Velocity Verlet integration
-  // x(t+dt) = x(t) + v(t)*dt + 0.5*a(t)*dt^2
+  // Velocity Verlet
   for (const b of bodies) {
     b.pos.x += b.vel.x * dt + 0.5 * b.acc.x * dt * dt
     b.pos.y += b.vel.y * dt + 0.5 * b.acc.y * dt * dt
     b.pos.z += b.vel.z * dt + 0.5 * b.acc.z * dt * dt
   }
 
-  // Compute new accelerations
   const oldAccs = bodies.map(b => b.acc.clone())
   computeAccelerations()
 
-  // v(t+dt) = v(t) + 0.5*(a(t) + a(t+dt))*dt
   for (let i = 0; i < bodies.length; i++) {
     const b = bodies[i]
     b.vel.x += 0.5 * (oldAccs[i].x + b.acc.x) * dt
@@ -458,126 +533,152 @@ function step(dt) {
     b.vel.z += 0.5 * (oldAccs[i].z + b.acc.z) * dt
   }
 
+  handleCollisions()
   simTime += dt
 }
 
 function computeEnergy() {
-  let kinetic = 0
-  let potential = 0
-
-  for (const b of bodies) {
-    kinetic += 0.5 * b.mass * b.vel.lengthSq()
-  }
-
-  for (let i = 0; i < bodies.length; i++) {
+  let K = 0, U = 0
+  for (const b of bodies) K += 0.5 * b.mass * b.vel.lengthSq()
+  for (let i = 0; i < bodies.length; i++)
     for (let j = i + 1; j < bodies.length; j++) {
-      const dist = bodies[i].pos.distanceTo(bodies[j].pos)
-      potential -= G * bodies[i].mass * bodies[j].mass / Math.max(dist, SOFTENING)
+      const d = bodies[i].pos.distanceTo(bodies[j].pos)
+      U -= G * bodies[i].mass * bodies[j].mass / Math.max(d, SOFTENING)
     }
-  }
-
-  return { kinetic, potential, total: kinetic + potential }
+  return { K, U, total: K + U }
 }
 
 // ========================
 // SPAWNING
 // ========================
 const raycaster = new THREE.Raycaster()
-const mouse = new THREE.Vector2()
+const mouseNDC = new THREE.Vector2()
 const spawnPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+
+// Predefined interesting starting positions for stable orbits
+const PRESETS = [
+  // Body 0: center-ish
+  () => ({
+    pos: new THREE.Vector3(0, 0, 0),
+    vel: new THREE.Vector3(0, 0, 0),
+  }),
+  // Body 1: orbiting body 0
+  () => {
+    const b0 = bodies[0]
+    const angle = Math.random() * Math.PI * 2
+    const dist = 25 + Math.random() * 15
+    const pos = new THREE.Vector3(
+      b0.pos.x + Math.cos(angle) * dist,
+      (Math.random() - 0.5) * 10,
+      b0.pos.z + Math.sin(angle) * dist,
+    )
+    const orbitalSpeed = Math.sqrt(G * b0.mass / dist) * (0.5 + Math.random() * 0.3)
+    const vel = new THREE.Vector3(
+      -Math.sin(angle) * orbitalSpeed,
+      (Math.random() - 0.5) * orbitalSpeed * 0.2,
+      Math.cos(angle) * orbitalSpeed,
+    )
+    return { pos, vel }
+  },
+  // Body 2: entering from further out
+  () => {
+    const com = getCenterOfMass()
+    const angle = Math.random() * Math.PI * 2
+    const dist = 40 + Math.random() * 20
+    const pos = new THREE.Vector3(
+      com.x + Math.cos(angle) * dist,
+      (Math.random() - 0.5) * 15,
+      com.z + Math.sin(angle) * dist,
+    )
+    const totalMass = bodies.reduce((s, b) => s + b.mass, 0)
+    const orbitalSpeed = Math.sqrt(G * totalMass / dist) * (0.4 + Math.random() * 0.4)
+    // Add tangential + slight radial component for chaos
+    const tangent = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle))
+    const vel = tangent.multiplyScalar(orbitalSpeed)
+    vel.y += (Math.random() - 0.5) * orbitalSpeed * 0.4
+    return { pos, vel }
+  },
+]
 
 function spawnBody(screenX, screenY) {
   if (bodies.length >= MAX_BODIES) return
 
-  mouse.x = (screenX / window.innerWidth) * 2 - 1
-  mouse.y = -(screenY / window.innerHeight) * 2 + 1
-
-  raycaster.setFromCamera(mouse, camera)
-  const intersection = new THREE.Vector3()
-  raycaster.ray.intersectPlane(spawnPlane, intersection)
-
-  if (!intersection) {
-    // If no intersection with plane, project forward
-    intersection.copy(raycaster.ray.at(50, new THREE.Vector3()))
-  }
-
   const idx = bodies.length
   const config = PLANET_CONFIGS[idx]
 
-  // Give initial velocity perpendicular to position (orbital)
-  let vel = new THREE.Vector3()
-  if (bodies.length > 0) {
-    // Calculate velocity for quasi-stable orbit around center of mass
-    const com = getCenterOfMass()
-    const toCenter = com.clone().sub(intersection)
-    const dist = toCenter.length()
+  let pos, vel
 
-    // v = sqrt(G*M/r) for circular orbit, but we add some perturbation
-    const totalMass = bodies.reduce((s, b) => s + b.mass, 0)
-    const orbitalSpeed = Math.sqrt(G * totalMass / Math.max(dist, 5)) * 0.6
-
-    // Perpendicular direction (cross with up)
-    vel = toCenter.clone().cross(new THREE.Vector3(0, 1, 0)).normalize()
-    vel.multiplyScalar(orbitalSpeed)
-
-    // Add slight y-component for 3D orbits
-    vel.y += (Math.random() - 0.5) * orbitalSpeed * 0.3
+  if (idx === 0) {
+    // First body: spawn at click position on y=0 plane
+    mouseNDC.x = (screenX / window.innerWidth) * 2 - 1
+    mouseNDC.y = -(screenY / window.innerHeight) * 2 + 1
+    raycaster.setFromCamera(mouseNDC, camera)
+    pos = new THREE.Vector3()
+    if (!raycaster.ray.intersectPlane(spawnPlane, pos)) {
+      pos = raycaster.ray.at(60, new THREE.Vector3())
+    }
+    vel = new THREE.Vector3(0, 0, 0)
+  } else {
+    // Subsequent bodies: use presets for interesting orbits
+    const preset = PRESETS[idx]()
+    pos = preset.pos
+    vel = preset.vel
   }
 
-  const body = new Body(config, intersection, vel)
+  const body = new Body(config, pos, vel)
   bodies.push(body)
 
-  // Initial acceleration compute
   computeAccelerations()
-
-  // Update UI
+  rebuildGravLines()
   updateUI()
-  updatePlanetDots()
 
-  // Flash effect
-  createSpawnFlash(intersection, config.color)
+  if (bodies.length === 2) initialEnergy = computeEnergy().total
+
+  createSpawnFlash(pos, config.color)
 }
 
 function getCenterOfMass() {
   const com = new THREE.Vector3()
-  let totalMass = 0
-  for (const b of bodies) {
-    com.addScaledVector(b.pos, b.mass)
-    totalMass += b.mass
-  }
-  if (totalMass > 0) com.divideScalar(totalMass)
-  return com
+  let totalM = 0
+  for (const b of bodies) { com.addScaledVector(b.pos, b.mass); totalM += b.mass }
+  return totalM > 0 ? com.divideScalar(totalM) : com
 }
 
 function createSpawnFlash(pos, color) {
-  const geo = new THREE.SphereGeometry(1, 16, 16)
-  const mat = new THREE.MeshBasicMaterial({
-    color: color,
-    transparent: true,
-    opacity: 0.8,
-  })
+  const geo = new THREE.SphereGeometry(1, 12, 12)
+  const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 })
   const flash = new THREE.Mesh(geo, mat)
   flash.position.copy(pos)
   scene.add(flash)
 
+  // Ring
+  const ringGeo = new THREE.RingGeometry(0.5, 1, 32)
+  const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+  const ring = new THREE.Mesh(ringGeo, ringMat)
+  ring.position.copy(pos)
+  ring.lookAt(camera.position)
+  scene.add(ring)
+
   let scale = 1
   function animate() {
-    scale += 0.8
-    mat.opacity -= 0.04
+    scale += 0.6
+    mat.opacity *= 0.92
+    ringMat.opacity *= 0.9
     flash.scale.setScalar(scale)
-    if (mat.opacity > 0) {
+    ring.scale.setScalar(scale * 3)
+    ring.lookAt(camera.position)
+    if (mat.opacity > 0.01) {
       requestAnimationFrame(animate)
     } else {
-      scene.remove(flash)
-      geo.dispose()
-      mat.dispose()
+      scene.remove(flash); scene.remove(ring)
+      geo.dispose(); mat.dispose(); ringGeo.dispose(); ringMat.dispose()
     }
   }
   animate()
 }
 
 // ========================
-// UI UPDATES
+// UI
 // ========================
 const statusEl = document.getElementById('status')
 const timeEl = document.getElementById('time-display')
@@ -585,29 +686,26 @@ const energyEl = document.getElementById('energy-display')
 const fpsEl = document.getElementById('fps-display')
 const hintEl = document.getElementById('spawn-hint')
 const energyFill = document.getElementById('energy-fill')
+const speedEl = document.getElementById('speed-display')
+const timeCtrlEl = document.getElementById('time-control')
 
 function updateUI() {
   statusEl.textContent = `bodies: ${bodies.length}/${MAX_BODIES}`
-
   if (bodies.length >= MAX_BODIES) {
     hintEl.style.opacity = '0'
   } else if (bodies.length > 0) {
-    hintEl.textContent = `click to add body ${bodies.length + 1}/3`
+    hintEl.innerHTML = `click to add body ${bodies.length + 1}/3<br><span style="font-size:11px;opacity:0.4">${bodies.length === 1 ? 'will orbit the first' : 'chaos begins'}</span>`
     hintEl.style.fontSize = '14px'
   }
-}
 
-function updatePlanetDots() {
   for (let i = 0; i < 3; i++) {
     const dot = document.getElementById(`dot${i}`)
     if (i < bodies.length) {
       dot.classList.add('active')
-      dot.classList.remove('empty')
       dot.style.backgroundColor = `#${PLANET_CONFIGS[i].color.toString(16).padStart(6, '0')}`
       dot.style.color = `#${PLANET_CONFIGS[i].color.toString(16).padStart(6, '0')}`
     } else {
       dot.classList.remove('active')
-      dot.classList.add('empty')
       dot.style.backgroundColor = 'transparent'
     }
   }
@@ -616,12 +714,6 @@ function updatePlanetDots() {
 // ========================
 // EVENTS
 // ========================
-renderer.domElement.addEventListener('click', e => {
-  // Ignore if user was dragging
-  if (isDragging) return
-  spawnBody(e.clientX, e.clientY)
-})
-
 let isDragging = false
 let mouseDownPos = { x: 0, y: 0 }
 
@@ -629,44 +721,77 @@ renderer.domElement.addEventListener('pointerdown', e => {
   mouseDownPos = { x: e.clientX, y: e.clientY }
   isDragging = false
 })
-
 renderer.domElement.addEventListener('pointermove', e => {
-  const dx = e.clientX - mouseDownPos.x
-  const dy = e.clientY - mouseDownPos.y
-  if (Math.sqrt(dx*dx + dy*dy) > 5) isDragging = true
+  if (Math.hypot(e.clientX - mouseDownPos.x, e.clientY - mouseDownPos.y) > 5) isDragging = true
+})
+renderer.domElement.addEventListener('click', e => {
+  if (!isDragging) spawnBody(e.clientX, e.clientY)
+})
+
+// Touch tap
+let touchStart = null
+renderer.domElement.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() }
+})
+renderer.domElement.addEventListener('touchend', e => {
+  if (touchStart && Date.now() - touchStart.t < 300) {
+    const ct = e.changedTouches[0]
+    if (Math.hypot(ct.clientX - touchStart.x, ct.clientY - touchStart.y) < 15) {
+      spawnBody(touchStart.x, touchStart.y)
+    }
+  }
+  touchStart = null
 })
 
 window.addEventListener('keydown', e => {
-  if (e.key === 'r' || e.key === 'R') {
-    // Reset
-    for (const b of bodies) b.remove()
-    bodies = []
-    simTime = 0
-    updateUI()
-    updatePlanetDots()
-    hintEl.style.opacity = '1'
-    hintEl.textContent = 'click to spawn a planet'
-    hintEl.style.fontSize = '18px'
-  }
-  if (e.key === 'p' || e.key === 'P') {
-    paused = !paused
-  }
-  if (e.key === 't' || e.key === 'T') {
-    showTrails = !showTrails
-    for (const b of bodies) b.trail.visible = showTrails
-  }
-  if (e.key === 'v' || e.key === 'V') {
-    showVelocity = !showVelocity
-  }
-  if (e.key === 'c' || e.key === 'C') {
-    // Center camera on center of mass
-    const com = getCenterOfMass()
-    controls.target.copy(com)
-  }
-  if (e.key === 'a' || e.key === 'A') {
-    controls.autoRotate = !controls.autoRotate
+  switch(e.key.toLowerCase()) {
+    case 'r':
+      for (const b of bodies) b.remove()
+      for (const l of gravLines) scene.remove(l.line)
+      gravLines = []
+      bodies = []
+      simTime = 0
+      initialEnergy = null
+      timeScale = 1.0
+      updateUI()
+      hintEl.style.opacity = '1'
+      hintEl.innerHTML = 'click to spawn a planet<br><span style="font-size:12px;opacity:0.5">up to 3 bodies</span>'
+      hintEl.style.fontSize = '18px'
+      break
+    case 'p':
+      paused = !paused
+      break
+    case 't':
+      showTrails = !showTrails
+      for (const b of bodies) b.trail.visible = showTrails
+      break
+    case 'arrowright':
+      timeScale = Math.min(timeScale * 1.5, 10)
+      showTimeControl()
+      break
+    case 'arrowleft':
+      timeScale = Math.max(timeScale / 1.5, 0.1)
+      showTimeControl()
+      break
+    case 'c':
+      controls.target.copy(getCenterOfMass())
+      break
+    case 'a':
+      controls.autoRotate = !controls.autoRotate
+      break
+    case ' ':
+      e.preventDefault()
+      paused = !paused
+      break
   }
 })
+
+function showTimeControl() {
+  speedEl.textContent = `${timeScale.toFixed(1)}x`
+  timeCtrlEl.textContent = `speed: ${timeScale.toFixed(1)}x`
+  timeCtrlEl.style.opacity = '0.5'
+  setTimeout(() => timeCtrlEl.style.opacity = '0', 1500)
+}
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight
@@ -674,60 +799,37 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight)
 })
 
-// Touch: tap to spawn
-let touchStart = null
-renderer.domElement.addEventListener('touchstart', e => {
-  if (e.touches.length === 1) {
-    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() }
-  }
-})
-renderer.domElement.addEventListener('touchend', e => {
-  if (touchStart && Date.now() - touchStart.time < 300) {
-    const dx = e.changedTouches[0].clientX - touchStart.x
-    const dy = e.changedTouches[0].clientY - touchStart.y
-    if (Math.sqrt(dx*dx + dy*dy) < 15) {
-      spawnBody(touchStart.x, touchStart.y)
-    }
-  }
-  touchStart = null
-})
-
 // ========================
-// RENDER LOOP
+// MAIN LOOP
 // ========================
-let initialEnergy = null
-
 function animate() {
   requestAnimationFrame(animate)
 
-  // Physics substeps
   if (!paused && bodies.length >= 2) {
-    for (let s = 0; s < SUBSTEPS; s++) {
-      step(DT)
-    }
+    const substeps = BASE_SUBSTEPS
+    const dt = BASE_DT * timeScale
+    for (let s = 0; s < substeps; s++) step(dt)
 
-    // Update trails every few frames
     if (frameCount % 2 === 0) {
       for (const b of bodies) b.updateTrail()
     }
   }
 
-  // Update meshes
   const time = performance.now() * 0.001
-  for (const b of bodies) {
-    b.updateMesh(time)
-  }
+  for (const b of bodies) b.updateMesh(time)
 
-  // Camera follow center of mass gently
+  // Gravity connection lines
+  if (bodies.length >= 2) updateGravLines()
+
+  // Camera gently follows CoM
   if (bodies.length > 0) {
-    const com = getCenterOfMass()
-    controls.target.lerp(com, 0.02)
+    controls.target.lerp(getCenterOfMass(), 0.015)
   }
 
   controls.update()
   renderer.render(scene, camera)
 
-  // HUD updates
+  // HUD
   frameCount++
   const now = performance.now()
   if (now - lastFpsTime > 500) {
@@ -739,23 +841,18 @@ function animate() {
 
   timeEl.textContent = `t = ${simTime.toFixed(2)}`
 
-  if (bodies.length >= 2 && frameCount % 10 === 0) {
+  if (bodies.length >= 2 && frameCount % 8 === 0) {
     const e = computeEnergy()
     energyEl.textContent = `E = ${e.total.toFixed(0)}`
-
-    if (initialEnergy === null) initialEnergy = e.total
-    // Energy conservation indicator (should stay near 50% if well-conserved)
-    const drift = initialEnergy !== 0
-      ? Math.abs((e.total - initialEnergy) / initialEnergy)
-      : 0
-    const fillPct = Math.max(0, Math.min(100, 50 + drift * 1000))
-    energyFill.style.width = `${fillPct}%`
+    if (initialEnergy !== null && initialEnergy !== 0) {
+      const drift = Math.abs((e.total - initialEnergy) / Math.abs(initialEnergy))
+      const pct = Math.max(2, Math.min(98, 50 + drift * 500))
+      energyFill.style.width = `${pct}%`
+    }
   }
 }
 
-// Start
 updateUI()
-updatePlanetDots()
 animate()
 </script>
 </body>
