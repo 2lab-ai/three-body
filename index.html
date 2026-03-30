@@ -380,6 +380,22 @@ class Body {
     // Speed history for color mapping
     this.trailSpeeds = []
 
+    // Name label (sprite)
+    const labelCanvas = document.createElement('canvas')
+    labelCanvas.width = 128
+    labelCanvas.height = 32
+    const lctx = labelCanvas.getContext('2d')
+    lctx.font = '18px monospace'
+    lctx.fillStyle = `#${config.color.toString(16).padStart(6, '0')}`
+    lctx.textAlign = 'center'
+    lctx.fillText(config.name, 64, 22)
+    const labelTex = new THREE.CanvasTexture(labelCanvas)
+    const labelMat = new THREE.SpriteMaterial({ map: labelTex, transparent: true, opacity: 0.5 })
+    this.label = new THREE.Sprite(labelMat)
+    this.label.scale.set(10, 2.5, 1)
+    this.label.position.set(0, config.radius + 4, 0)
+    this.mesh.add(this.label)
+
     scene.add(this.mesh)
     scene.add(this.trail)
   }
@@ -600,29 +616,44 @@ const PRESETS = [
   },
 ]
 
+function getClickPosition(screenX, screenY) {
+  mouseNDC.x = (screenX / window.innerWidth) * 2 - 1
+  mouseNDC.y = -(screenY / window.innerHeight) * 2 + 1
+  raycaster.setFromCamera(mouseNDC, camera)
+  const pos = new THREE.Vector3()
+  if (!raycaster.ray.intersectPlane(spawnPlane, pos)) {
+    raycaster.ray.at(60, pos)
+  }
+  return pos
+}
+
 function spawnBody(screenX, screenY) {
   if (bodies.length >= MAX_BODIES) return
 
   const idx = bodies.length
   const config = PLANET_CONFIGS[idx]
+  const clickPos = getClickPosition(screenX, screenY)
 
   let pos, vel
 
   if (idx === 0) {
-    // First body: spawn at click position on y=0 plane
-    mouseNDC.x = (screenX / window.innerWidth) * 2 - 1
-    mouseNDC.y = -(screenY / window.innerHeight) * 2 + 1
-    raycaster.setFromCamera(mouseNDC, camera)
-    pos = new THREE.Vector3()
-    if (!raycaster.ray.intersectPlane(spawnPlane, pos)) {
-      pos = raycaster.ray.at(60, new THREE.Vector3())
-    }
+    pos = clickPos
     vel = new THREE.Vector3(0, 0, 0)
   } else {
-    // Subsequent bodies: use presets for interesting orbits
-    const preset = PRESETS[idx]()
-    pos = preset.pos
-    vel = preset.vel
+    // Spawn at click position, calculate orbital velocity around existing bodies
+    pos = clickPos
+    const com = getCenterOfMass()
+    const toCenter = com.clone().sub(pos)
+    const dist = toCenter.length()
+
+    const totalMass = bodies.reduce((s, b) => s + b.mass, 0)
+    const orbitalSpeed = Math.sqrt(G * totalMass / Math.max(dist, 10)) * (0.45 + Math.random() * 0.2)
+
+    // Tangential velocity (perpendicular to radial, in xz plane)
+    vel = toCenter.clone().cross(new THREE.Vector3(0, 1, 0)).normalize()
+    vel.multiplyScalar(orbitalSpeed)
+    // Slight y perturbation for 3D orbits
+    vel.y += (Math.random() - 0.5) * orbitalSpeed * 0.25
   }
 
   const body = new Body(config, pos, vel)
